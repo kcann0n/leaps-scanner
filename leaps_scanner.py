@@ -1,6 +1,6 @@
 """
 =============================================================================
-  WEEKLY RSI LEAPS SCANNER — Telegram Alerts
+  WEEKLY RSI LEAPS SCANNER — Telegram Alerts w/ Conviction Tiers
   Based on @JasonL_Capital's setup
 =============================================================================
 """
@@ -24,21 +24,57 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # =============================================================================
-# WATCHLIST
+# WATCHLIST WITH CONVICTION TIERS
+# =============================================================================
+# Tier 1 (🟢 A+) = Blue chip / market leaders. High conviction LEAPS plays.
+#                   These companies aren't going anywhere. When they're oversold,
+#                   it's almost always a gift.
+#
+# Tier 2 (🟡 B+) = Strong companies but more volatile. Good LEAPS candidates
+#                   but size smaller than Tier 1.
+#
+# Tier 3 (🟠 C+) = Speculative / high-risk. Could 10x or go to zero.
+#                   Only play these if you have a strong thesis. Small size only.
 # =============================================================================
 
-WATCHLIST = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AVGO",
-    "CRM", "ADBE", "NOW", "SNOW", "PLTR", "DDOG", "NET", "CRWD",
-    "PANW", "ZS", "MDB", "SHOP",
-    "AMD", "QCOM", "MRVL", "AMAT", "LRCX", "KLAC", "AMKR", "ON", "MU", "INTC",
-    "PYPL", "HOOD", "COIN", "V", "MA", "AFRM", "SOFI",
-    "NFLX", "BKNG", "UBER", "ABNB", "DASH", "SPOT", "RBLX", "PINS",
+TIER_1 = {
+    # Mega cap tech — not going bankrupt, ever
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "AVGO",
+    # Dominant franchises
+    "V", "MA", "COST", "WMT", "UNH",
+    # Enterprise software leaders
+    "CRM", "ADBE", "NOW", "ORCL",
+}
+
+TIER_2 = {
+    # Strong but more cyclical / volatile
+    "TSLA", "AMD", "QCOM", "MRVL", "AMAT", "LRCX", "KLAC", "MU",
+    "NFLX", "BKNG", "UBER", "ABNB",
+    "CRWD", "PANW", "ZS", "DDOG", "NET", "SNOW", "MDB", "SHOP",
+    "PYPL", "ISRG", "TMO", "DHR", "ABBV",
+    "IBM", "ACN", "AXP", "INTC",
+    "PLTR", "SPOT", "DASH",
+}
+
+TIER_3 = {
+    # Speculative — high reward but real risk of permanent loss
+    "HOOD", "COIN", "AFRM", "SOFI",
+    "RBLX", "PINS", "ROKU", "TTD",
     "IREN", "AI", "PATH", "S", "SMCI",
-    "UNH", "ISRG", "DXCM", "TMO", "DHR", "ABBV",
-    "ROKU", "TTD", "ENPH", "SEDG", "RIVN", "LCID",
-    "ACN", "AXP", "ORCL", "IBM", "COST", "WMT",
-]
+    "ON", "AMKR", "ENPH", "SEDG",
+    "RIVN", "LCID", "DXCM",
+}
+
+WATCHLIST = list(TIER_1 | TIER_2 | TIER_3)
+
+
+def get_tier(ticker):
+    if ticker in TIER_1:
+        return 1, "🟢 A+", "HIGH CONVICTION — size up"
+    elif ticker in TIER_2:
+        return 2, "🟡 B+", "SOLID — normal size"
+    else:
+        return 3, "🟠 C+", "SPECULATIVE — small size only"
 
 
 # =============================================================================
@@ -165,8 +201,9 @@ def run_scanner():
     if oversold:
         print(f"\n🔴 OVERSOLD (Weekly RSI < {RSI_THRESHOLD}):")
         for s in oversold:
+            tier_num, tier_label, _ = get_tier(s["ticker"])
             crossed = " ← JUST CROSSED" if s["just_crossed"] else ""
-            print(f"   {s['ticker']:6s}  RSI: {s['weekly_rsi']:5.1f}  Price: ${s['price']:>10.2f}  "
+            print(f"   [{tier_label}] {s['ticker']:6s}  RSI: {s['weekly_rsi']:5.1f}  Price: ${s['price']:>10.2f}  "
                   f"Drawdown: -{s['drawdown_pct']}%{crossed}")
     else:
         print("\n✅ No stocks with Weekly RSI below 30.")
@@ -179,43 +216,77 @@ def run_scanner():
 
     # === SEND TELEGRAM ALERTS ===
     if oversold:
+        # Group by tier
+        tier1_alerts = [s for s in oversold if s["ticker"] in TIER_1]
+        tier2_alerts = [s for s in oversold if s["ticker"] in TIER_2]
+        tier3_alerts = [s for s in oversold if s["ticker"] in TIER_3]
+
         msg = "🚨 <b>LEAPS SCANNER ALERT</b>\n"
         msg += f"📅 {datetime.now().strftime('%A, %b %d %Y')}\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-        msg += f"🔴 <b>OVERSOLD — Weekly RSI &lt; 30</b>\n\n"
+        # TIER 1
+        if tier1_alerts:
+            msg += "🟢 <b>TIER 1 — HIGH CONVICTION</b>\n"
+            msg += "<i>Blue chips. Size up. These are the plays.</i>\n\n"
+            for s in tier1_alerts:
+                opts = get_options_suggestion(s["ticker"], s["price"])
+                crossed = " 🔥 JUST CROSSED" if s["just_crossed"] else ""
+                msg += f"<b>${s['ticker']}</b>{crossed}\n"
+                msg += f"  ${s['price']}  |  RSI: {s['weekly_rsi']}  |  -{s['drawdown_pct']}%\n"
+                msg += f"  ➡️ <b>Buy ${opts['strike']}C exp {opts['expiry']}+</b>\n"
+                msg += f"  📊 <a href=\"{opts['chain_url']}\">Options Chain</a>\n\n"
 
-        for s in oversold:
-            opts = get_options_suggestion(s["ticker"], s["price"])
-            crossed = " 🔥 JUST CROSSED" if s["just_crossed"] else ""
+        # TIER 2
+        if tier2_alerts:
+            msg += "🟡 <b>TIER 2 — SOLID PLAYS</b>\n"
+            msg += "<i>Strong companies. Normal size.</i>\n\n"
+            for s in tier2_alerts:
+                opts = get_options_suggestion(s["ticker"], s["price"])
+                crossed = " 🔥 JUST CROSSED" if s["just_crossed"] else ""
+                msg += f"<b>${s['ticker']}</b>{crossed}\n"
+                msg += f"  ${s['price']}  |  RSI: {s['weekly_rsi']}  |  -{s['drawdown_pct']}%\n"
+                msg += f"  ➡️ Buy ${opts['strike']}C exp {opts['expiry']}+\n"
+                msg += f"  📊 <a href=\"{opts['chain_url']}\">Options Chain</a>\n\n"
 
-            msg += f"<b>${s['ticker']}</b>{crossed}\n"
-            msg += f"  Price: ${s['price']}  |  RSI: {s['weekly_rsi']}\n"
-            msg += f"  Drawdown: -{s['drawdown_pct']}% from 52w high\n"
-            msg += f"  ➡️ Buy ${opts['strike']}C exp {opts['expiry']}+\n"
-            msg += f"  📊 <a href=\"{opts['chain_url']}\">Options Chain</a>\n\n"
+        # TIER 3
+        if tier3_alerts:
+            msg += "🟠 <b>TIER 3 — SPECULATIVE</b>\n"
+            msg += "<i>High risk. Small size only. Could go either way.</i>\n\n"
+            for s in tier3_alerts:
+                opts = get_options_suggestion(s["ticker"], s["price"])
+                crossed = " 🔥 JUST CROSSED" if s["just_crossed"] else ""
+                msg += f"<b>${s['ticker']}</b>{crossed}\n"
+                msg += f"  ${s['price']}  |  RSI: {s['weekly_rsi']}  |  -{s['drawdown_pct']}%\n"
+                msg += f"  ➡️ Buy ${opts['strike']}C exp {opts['expiry']}+\n"
+                msg += f"  📊 <a href=\"{opts['chain_url']}\">Options Chain</a>\n\n"
 
         msg += f"━━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"<b>RULES:</b>\n"
-        msg += f"• 360+ DTE calls, 10% OTM\n"
-        msg += f"• Sell half at 100% gain\n"
+        msg += f"<b>STRATEGY RULES:</b>\n"
+        msg += f"• Buy 360+ DTE calls, 10% OTM\n"
+        msg += f"• Sell HALF at 100% gain\n"
         msg += f"• Hold rest until 60 DTE\n"
+        msg += f"• Tier 1 = size up, Tier 3 = small bets\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
         if approaching:
-            msg += f"🟡 <b>WATCH LIST (RSI 30-35):</b>\n"
+            msg += f"👀 <b>WATCH LIST (RSI 30-35):</b>\n"
             for s in approaching:
-                msg += f"  ${s['ticker']} — RSI: {s['weekly_rsi']} — ${s['price']}\n"
+                _, tier_label, _ = get_tier(s["ticker"])
+                msg += f"  {tier_label} ${s['ticker']} — RSI: {s['weekly_rsi']} — ${s['price']}\n"
+
+        msg += f"\n<i>⚠️ Not financial advice. Do your own DD.</i>"
 
         print(f"\n📱 Sending Telegram alert...")
         send_telegram(msg)
     else:
-        # Send a quiet daily confirmation so you know it's running
-        msg = f"✅ LEAPS Scanner ran — {datetime.now().strftime('%b %d')}\n"
-        msg += f"No stocks below RSI 30.\n"
+        msg = f"✅ <b>LEAPS Scanner</b> — {datetime.now().strftime('%b %d')}\n"
+        msg += f"No stocks below RSI 30. Be patient.\n"
         if approaching:
-            msg += f"\n🟡 Approaching: "
-            msg += ", ".join([f"${s['ticker']}({s['weekly_rsi']})" for s in approaching])
+            msg += f"\n👀 <b>Approaching:</b>\n"
+            for s in approaching:
+                _, tier_label, _ = get_tier(s["ticker"])
+                msg += f"  {tier_label} ${s['ticker']} — RSI: {s['weekly_rsi']} — ${s['price']}\n"
         print(f"\n📱 Sending Telegram status...")
         send_telegram(msg)
 
