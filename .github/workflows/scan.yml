@@ -5,9 +5,6 @@ on:
     - cron: '30 21 * * 1-5'
   workflow_dispatch:
 
-permissions:
-  issues: write
-
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -26,5 +23,6 @@ jobs:
 
       - name: Run LEAPS scanner
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python leaps_scanner.py
